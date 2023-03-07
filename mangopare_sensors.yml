@@ -1,0 +1,42 @@
+## TODO add boxes all over the coast
+
+# docker run -ti --rm -v /source/msl_actions:/source/msl_actions -v /static:/static -v /data/mhw:/data/mhw -v /config/ops:/config/ops metocean/mhw:v2.0.4 bash
+# python /source/msl_actions/msl_actions/run_action.py -a /config/ops/scheduler/actions/products/prod.mhw_coastal_intensity_map.yml -c 20230206_00z
+
+pycallable:  burftools.encoding.Mangopare_sensors.nc2bufr
+title: netcdf to buffer for Mangopare sensors data
+description: >
+    Plot marine heatwave intensity map at several user-defined regions (same as in 
+    prod.detect_mhw_nz-backbone-v2). Categories come from prod.detect_mhw_nz-backbone-v2 output.
+    Saves images to google cloud bucket, which feeds MetService media releases.
+
+template: ''
+originating_centre: ''
+updir: '/data/obs/mangopare/gts'
+sub_centre: ''
+data_category: '' 
+sub_category: ''
+local_category: ''
+master_table_version: ''
+local_table_version: ''
+number_of_subsets : '1'
+descriptors: ''
+
+# Scheduler configs ================================================================================
+
+schedule:
+    docker:
+        force_update: True
+        image:         metocean/mhw:v2.0.4
+        volumes:
+            - /static/hydro-ops:/static/hydro-ops
+    priority:          4
+    allocate:          [1]
+    hourly_cycles:     [0]
+    countdown:         8h
+    soft_time_limit:   1h
+    expires:           24h
+    hard_dependency:   ['prod.detect_coastal_mhw_nz-backbone-v2']
+    memleak_threshold: 4000
+    max_retries:       3    # Maximum number of retries before giving up
+    retry_delay:       15min # time to wait for next retry [s]
