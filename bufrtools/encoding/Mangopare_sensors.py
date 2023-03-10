@@ -56,7 +56,7 @@ def get_section1() -> dict:
     """Returns the section1 part of the message to be encoded."""
     now = datetime.utcnow()
     section1 = {
-        'originating_centre': self.originating_centre, #MetOcean doesn't have originatin centre 
+        'originating_centre': 0, #MetOcean doesn't have originatin centre 
         'sub_centre': 0,
         'data_category': 31,         # oceanographic data
         'sub_category': 4,           # subsurface float (profile)
@@ -103,7 +103,6 @@ def get_mangopare_data(df: pd.DataFrame) -> List[dict]:
     dataset = dataset.reset_index(drop=True)
     # Combine back with the full dataset after calculating
     # speed and direction
-    trajectory = pd.merge(trajectory, df[['profile', 'z', 'temperature']])
     sequence = []
     sequence.append({
         'fxy': '031001',
@@ -114,7 +113,7 @@ def get_mangopare_data(df: pd.DataFrame) -> List[dict]:
         'bit_len': 8,
         'value': len(dataset)
     })
-    data_seq = get_sequence_description('315023').iloc[18:34]
+    data_seq = get_sequence_description('306048').iloc[21::]
     for _, row in dataset.iterrows():
         for seq in process_mangopare(data_seq.copy(), row):
             sequence.append(seq)
@@ -128,8 +127,8 @@ def process_mangopare(data_seq: pd.DataFrame, row) -> List[dict]:
     temperature = getattr(row, 'temperature', np.nan)
     temperature += 273.15  # Convert from deg_C to Kelvin
     
-    trajectory_seq['value'] = [
-        26,                          # Last known position
+    data_seq['value'] = [
+        1,                           # Time significance aka Time series 
         np.nan,                      # Sequence
         row.time.year,
         row.time.month,
@@ -137,114 +136,19 @@ def process_mangopare(data_seq: pd.DataFrame, row) -> List[dict]:
         np.nan,                      # Sequence
         row.time.hour,
         row.time.minute,
+        1,                           # Coordinates significance; 1=Observation coordinates 
         np.nan,                      # Lat/Lon Sequence,
         row.lat,
         row.lon,
-        0,                           # Fixed to good
-        0,                           # Fixed to good
-        row.depth,
+        1,                           # Global quality flag 1=Correct value
+        row.pressure,                # Depth (pressure)
+        10,                          # Quality flag, 10=Water pressure at level
+        9,                           # Global quality flag 9=Good for operational use
         temperature,                 # Sea / Water Temperature (K)
-        31,                          # Missing Value
-    ]
-    return trajectory_seq.to_dict(orient='records')
-
-
-def get_profile_sequence(df: pd.DataFrame) -> List[dict]:
-    """Returns the sequences for the profiles."""
-    parent_seq = get_sequence_description('315023')
-    profile_description_seq = parent_seq.iloc[39:52]
-    profile_data_seq = parent_seq.iloc[55:67]
-    sequence = []
-    sequence.append({
-        'fxy': '031001',
-        'text': 'Delayed descriptor replication factor (Numeric)',
-        'type': 'numeric',
-        'scale': 0,
-        'offset': 0,
-        'bit_len': 8,
-        'value': len(df.profile.unique()),
-    })
-    for profile_id in df.profile.unique():
-        profile = df[df['profile'] == profile_id]
-        profile_seq = process_profile_description(profile_description_seq.copy(), profile)
-        sequence.extend(profile_seq)
-        data_seq = process_profile_data(profile_data_seq.copy(), profile)
-        sequence.extend(data_seq)
-    return sequence
-
-
-def process_profile_description(profile_seq: pd.DataFrame, profile: pd.DataFrame) -> List[dict]:
-    """Returns the sequence for the profile description part."""
-    first_row = profile.iloc[0]
-    date = first_row.time
-
-    year = date.year
-    month = date.month
-    day = date.day
-    hour = date.hour
-    minute = date.minute
-    lat = first_row.lat
-    lon = first_row.lon
-    profile_id = str(first_row.profile)
-    direction = 0 if (profile.z.mean() < 0) else 1
-    profile_seq['value'] = [
-        np.nan,     # Sequence
-        year,
-        month,
-        day,
-        np.nan,     # Sequence
-        hour,
-        minute,
-        np.nan,     # Sequence
-        lat,
-        lon,
-        profile_id,
-        np.nan,     # Upcast number
-        direction,
-    ]
-    return profile_seq.to_dict(orient='records')
-
-
-def process_profile_data(profile_seq: pd.DataFrame, profile: pd.DataFrame) -> List[dict]:
-    """Returns the sequence for the profile data 306035 Temperature and Salinity Profile."""
-    sequence = []
-    sequence.append({
-        'fxy': '031002',
-        'text': 'Delayed descriptor replication factor (Numeric)',
-        'type': 'numeric',
-        'scale': 0,
-        'offset': 0,
-        'bit_len': 16,
-        'value': len(profile),
-    })
-    for i, row in profile.iterrows():
-        seq = profile_seq.copy()
-
-        # Get pressure
-        pressure = getattr(row, 'pressure', np.nan)
-        pressure *= 10000  # Convert from dbar to Pa
-        # Get temperature
-        temperature = getattr(row, 'temperature', np.nan)
-        temperature += 273.15  # Convert from deg_C to Kelvin
-        # Get salinity
-        salinity = getattr(row, 'salinity', np.nan)
-
-        seq['value'] = [
-            row.z if row.z > 0 else 0,  # Depth below sea water
-            13,                         # Depth at a level
-            0,                          # Unqualified
-            pressure,                   # Pressure
-            10,                         # Pressure at a level
-            0,                          # Unqualified
-            temperature,                # Temperature in K
-            11,                         # Temperature at a depth
-            0,                          # Unqualified
-            salinity,                   # Salinity
-            12,                         # Salinity at a depth
-            0,                          # Unqualified
+        11,                          # Quality flag, 10=Water temperature at level
+        9,                           # Global quality flag 9=Good for operational use
         ]
-        sequence.extend(seq.to_dict(orient='records'))
-    return sequence
+    return data_seq.to_dict(orient='records')
 
 
 def get_section4(df: pd.DataFrame, **kwargs) -> List[dict]:
@@ -265,31 +169,33 @@ def get_section4(df: pd.DataFrame, **kwargs) -> List[dict]:
         wigos_local_identifier,   # 001128,WIGOS local identifier (character),,,Operational
     ]
     records.extend(wigos_sequence.to_dict(orient='records'))
-
-    uuid = kwargs.pop('uuid')
-    ptt = kwargs.pop('ptt')
-    wmo = kwargs.pop('wmo_platform_code', None)
+    wmo=0
+ #   uuid = kwargs.pop('uuid')
+ #   ptt = kwargs.pop('ptt')
+ #   wmo = kwargs.pop('wmo_platform_code', None)
     # If WMO ID is passed in as None, fill it with zero
     if wmo is None:
         wmo = 0
 
-    platform_id_sequence = get_sequence_description('315023')[6:16]
+    platform_id_sequence = get_sequence_description('306048')[6:19]
     platform_id_sequence['value'] = [
         np.nan,         # 201129,Change data width,,,Operational  # noqa
-        wmo,            # 001087,WMO marine observing platform extended identifier ,WMO number where assigned,,Operational # noqa
+        0,              # 001087,WMO marine observing platform extended identifier ,WMO number where assigned,,Operational # noqa
         np.nan,         # 201000,Change data width,Cancel,,Operational
         np.nan,         # 208032,Change width of CCITT IA5 ,change width to 32 characters,,Operational # noqa
-        uuid[:32],      # 001019,Ship or mobile land station identifier ,"Platform ID, e.g. ct145-933-BAT2-18 (max 32 characters)",,Operational # noqa
+        '63755LL',      # 001019,Ship or mobile land station identifier ,"vessel_id (max 32 characters)",,Operational # noqa
         np.nan,         # 208000,Change width of CCITT IA5 ,Cancel change width,,Operational # noqa
-        10,             # 003001,Surface station type ,10 (Marine animal),,Operational # noqa
-        995,            # 022067,Instrument type for water temperature and/or salinity measurement,set to 995 (attached to marine animal),,Operational # noqa
-        ptt[:12],       # 001051,Platform transmitter ID number,e.g. Argos PTT,,Operational # noqa
-        1,              # 002148,Data collection and/or location system,,,Operational # noqa
+        11,             # 003001,Surface station type , 11 vessel moving sensor, Operational # noqa
+        997,            # 022067,Instrument type for water temperature and/or salinity measurement,set to 997 Ocean moving vessel profiler),,Operational # noqa
+        '5291',         # 001051,Platform transmitter ID number,deck_unit_serial_number,,Operational # noqa
+        11,             # 002148,Data collection and/or location system,,,Operational # noqa New MANGOPARE SENSOR or 2 for GPS
+        230,            # 001154,Sensor ID, Moana Serial Number
+        0,              # 008015,Significant qualifier for sensor,,, Set to 0 for single senor
+        4.17            # 025026,Battery Voltage,,deck_unit_battery_voltage
     ]
     records.extend(platform_id_sequence.to_dict(orient='records'))
     # WC profiles don't have enough data to fill in the trajectory portion of the BUFR, so we'll
-    records.extend(get_trajectory_sequences(df))
-    records.extend(get_profile_sequence(df))
+    records.extend(get_mangopare_data(df))
     return records
 
 
@@ -297,7 +203,7 @@ def encode(profile_dataset: Path, output: Path, **kwargs):
     """Encodes the input `profile_dataset` as BUFR and writes it to `output`."""
  #   df, meta = parse_input_to_dataframe(profile_dataset)
     ds=xr.open_dataset(profile_dataset)
-    df = ds.to_dataframe()
+    dfn = ds.to_dataframe()
     # If we were able to extract metadata attributes from the
     # source dataset, use those instead of the passed in values
     if meta:
@@ -351,3 +257,6 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
+
+profile_dataset='/data/obs/mangopare/MOANA_0230_342_230306230658_qc.nc'

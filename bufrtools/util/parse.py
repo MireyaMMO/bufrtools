@@ -11,9 +11,18 @@ from pocean.cf import CFDataset
 
 def parse_ref(fxy) -> tuple:
     """Returns a tuple of the FXXYYYY string parsed out into integers."""
-    f = int(fxy[0])
-    x = int(fxy[1:3])
-    y = int(fxy[3:6])
+    if len(fxy)<5:
+    	f=int(0)
+    	x=int(fxy[0])
+    	y=int(fxy[1::])
+    elif len(fxy)<6:
+    	f=int(0)
+    	x=int(fxy[0:2])
+    	y=int(fxy[2::])
+    else:
+    	f = int(fxy[0])
+    	x = int(fxy[1:3])
+    	y = int(fxy[3:6])
     return f, x, y
 
 
